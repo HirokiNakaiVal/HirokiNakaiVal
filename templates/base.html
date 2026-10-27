@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}日別稼働計画{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">日別稼働計画</a>
+  <nav class="crumbs">{% block crumbs %}{% endblock %}</nav>
+  {% set u = request.state.user if request.state.user is defined else none %}
+  {% if u %}
+  <span class="navright">
+    <a class="navlink" href="/admin">マスタ・設定</a>
+    {% if request.state.admin %}<form method="post" action="/admin/lock" class="navout"><button title="管理者パスワードの入力を取り消す">管理を終了</button></form>{% endif %}
+    <a class="navuser" href="/account/password" title="パスワード変更">{{ u.name or u.login_id }}（{{ u.login_id }}）</a>
+    <form method="post" action="/logout" class="navout"><button>ログアウト</button></form>
+  </span>
+  {% endif %}
+</header>
+{% if u and (request.state.initial_pw or u.must_change) %}
+<div class="pwwarn">{% if request.state.initial_pw %}初期パスワードのまま使われています。{% else %}管理者がパスワードを再設定しました。{% endif %}
+  個人情報を扱うため、<a href="/account/password">パスワードを変更</a>してください。</div>
+{% endif %}
+{% if u and request.state.admin_pw_initial %}
+<div class="pwwarn">管理者パスワードが初期（999999）のままです。マスタ・設定の<a href="/admin?tab=users">ユーザー管理</a>で変更してください。</div>
+{% endif %}
+<main>
+{% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

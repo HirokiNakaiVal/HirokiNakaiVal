@@ -1,0 +1,72 @@
+<p class="muted">チェックした会社・事業部・店舗だけが、トップ画面のプルダウン・店舗検索、マスタ・設定の会社事業部一覧、事業部の店舗一覧に表示されます（全員共通の設定）。店舗は事業部の「店舗 ○/○」を開いて選びます。
+  データを取り込み済みの店舗は、ここでの設定に関係なく表示されます。</p>
+
+<form method="post" action="/filter" class="card filter">
+  <div class="filterbar">
+    <input id="kw" placeholder="会社・事業部・店舗名で絞り込み" oninput="kwf(this.value)" size="28">
+    <button type="button" onclick="all_(true)">すべてチェック</button>
+    <button type="button" onclick="all_(false)">すべて外す</button>
+    <span class="muted small" id="cnt"></span>
+  </div>
+  {% for c in tree %}
+  <fieldset class="comp" data-k="{{ c.c.code }} {{ c.c.name }} {% for d in c.divs %}{{ d.name }} {% endfor %}">
+    <legend>
+      <label><input type="checkbox" name="show" value="{{ c.c.id }}" class="cbC" {% if c.c.visible != 0 %}checked{% endif %} onchange="compChg(this)">
+        <b>{{ c.c.name }}</b> <span class="code">会社 {{ c.c.code }}</span></label>
+    </legend>
+    <div class="divchecks">
+      {% for d in c.divs %}{% set sts = sby.get(d.id, []) %}
+      <div class="divbox" data-k="{{ d.code }} {{ d.name }} {% for x in sts %}{{ x.code }} {{ x.name }} {% endfor %}">
+        <label class="{{ 'hasdata' if d.id in has else '' }}"><input type="checkbox" name="show" value="{{ d.id }}" class="cbD" {% if d.visible != 0 %}checked{% endif %} onchange="cnt_()">
+          <span class="code">{{ d.code }}</span> {{ d.name }}{% if d.id in has %} <span class="tag">データあり</span>{% endif %}</label>
+        {% if sts %}
+        <details class="stores"><summary class="small">店舗 <span class="sc">{{ sts|rejectattr('visible', 'equalto', 0)|list|length }}</span>/{{ sts|length }}</summary>
+          <div class="storebar">
+            <button type="button" class="small" onclick="stAll(this, true)">全店チェック</button>
+            <button type="button" class="small" onclick="stAll(this, false)">全店外す</button>
+          </div>
+          <div class="storechecks">
+            {% for x in sts %}
+            <label data-k="{{ x.code }} {{ x.name }}" class="{{ 'hasdata' if x.id in data_st else '' }}"><input type="checkbox" name="show" value="{{ x.id }}" class="cbS" {% if x.visible != 0 %}checked{% endif %} onchange="cnt_()">
+              <span class="code">{{ x.code }}</span> {{ x.name }}{% if x.id in data_st %} <span class="tag" title="データのある店舗は常に表示">データ</span>{% endif %}</label>
+            {% endfor %}
+          </div>
+        </details>
+        {% else %}<span class="muted small">店舗なし</span>{% endif %}
+      </div>
+      {% else %}<span class="muted small">事業部なし</span>{% endfor %}
+    </div>
+  </fieldset>
+  {% endfor %}
+  <div class="actions sticky">
+    <button class="primary">保存</button>
+    <button name="preset" value="main" class="ghost" onclick="return confirm('経費振替・本部店・センター・店舗の無い事業部を外し、それ以外の会社・事業部をチェックします（店舗の設定はそのまま）。よろしいですか？')">おすすめの絞り込み（経費振替・本部店・センターを外す）</button>
+    <button name="preset" value="all" class="ghost">すべて表示に戻す</button>
+      </div>
+</form>
+<script>
+function compChg(cb){ cb.closest('fieldset').querySelectorAll('.cbD').forEach(function(x){ x.checked = cb.checked; }); cnt_(); }
+function all_(v){ document.querySelectorAll('fieldset.comp:not([hidden]) input[type=checkbox]').forEach(function(x){ if (!x.closest('[hidden]')) x.checked = v; }); cnt_(); }
+function kwf(v){
+  v = v.trim();
+  document.querySelectorAll('fieldset.comp').forEach(function(f){ f.hidden = !!v && f.dataset.k.indexOf(v) < 0; });
+  document.querySelectorAll('.divbox').forEach(function(b){
+    b.hidden = !!v && b.dataset.k.indexOf(v) < 0;
+    var stHit = false;
+    b.querySelectorAll('.storechecks label').forEach(function(l){ var h = !v || l.dataset.k.indexOf(v) >= 0; l.hidden = !h; if (v && h) stHit = true; });
+    var dt = b.querySelector('details.stores'); if (dt && v) dt.open = stHit;
+  });
+}
+function stAll(btn, on){ btn.closest('details').querySelectorAll('.storechecks label:not([hidden]) .cbS').forEach(function(x){ x.checked = on; }); cnt_(); }
+function cnt_(){
+  var c = document.querySelectorAll('.cbC:checked').length, d = 0;
+  document.querySelectorAll('fieldset.comp').forEach(function(f){ if (f.querySelector('.cbC').checked) d += f.querySelectorAll('.cbD:checked').length; });
+  var st = 0;
+  document.querySelectorAll('.divbox').forEach(function(b){
+    var on = b.querySelectorAll('.cbS:checked').length, sc = b.querySelector('.sc'); if (sc) sc.textContent = on;
+    if (b.querySelector('.cbD').checked && b.closest('fieldset').querySelector('.cbC').checked) st += on;
+  });
+  document.getElementById('cnt').textContent = '表示：会社 ' + c + '社・事業部 ' + d + '件・店舗 ' + st + '店';
+}
+cnt_();
+</script>

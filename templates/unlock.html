@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}マスタ・設定｜日別稼働計画{% endblock %}
+{% block crumbs %}<a href="/">トップ</a> › マスタ・設定{% endblock %}
+{% block body %}
+<section class="card loginbox">
+  <h1>マスタ・設定</h1>
+  <p class="muted small">管理者パスワードを入力してください。</p>
+  {% if err %}<div class="msg err">{{ err }}</div>{% endif %}
+  <form method="post" action="/admin/unlock" autocomplete="off">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>管理者パスワード <input name="password" type="password" required autofocus></label>
+    <button class="primary">入る</button>
+  </form>
+  <p><a href="/">トップへ戻る</a></p>
+</section>
+{% endblock %}

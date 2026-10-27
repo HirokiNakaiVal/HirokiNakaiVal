@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}設定｜{{ s.name }}{% endblock %}
+{% block crumbs %}{{ c.name if c else '' }} › {% if d %}<a href="/division/{{ d.id }}">{{ d.name }}</a>{% endif %} › <a href="/store/{{ s.id }}">{{ s.name }}</a> › 設定{% endblock %}
+{% block body %}
+<h1>{{ s.name }} の設定</h1>
+<form method="post" class="card settings">
+  <h2>営業・レジ</h2>
+  <label>営業開始 <input name="open" value="{{ st.open }}" placeholder="09:00"></label>
+  <label>営業終了 <input name="close" value="{{ st.close }}" placeholder="20:00"></label>
+  <label>レジ部門の名称 <input name="register_dept" value="{{ st.register_dept }}"><small>月間稼働表の部門名</small></label>
+  <label>有人レジ番号 <input name="staffed_registers" value="{{ st.staffed_registers }}"><small>auto＝KADOU実績に○Rの作業があるレジ。指定する場合は 1,2,3,5 のように</small></label>
+  <label>専任レジ番号 <input name="dedicated_registers" value="{{ st.dedicated_registers }}"><small>レジ部門以外（ペット等）が担当するレジ。auto＝実績でレジ部門の担当が2割未満のレジ</small></label>
+  <label>1台あたり処理客数（人/時） <input name="cap" type="number" step="1" value="{{ st.cap }}"></label>
+  <label>最低レジ台数 <input name="min_lanes" type="number" value="{{ st.min_lanes }}"></label>
+
+  <h2>作業</h2>
+  <label>1時間交代の持ち場 <input name="kerosene_item" value="{{ st.kerosene_item }}"><small>例：灯油1。実績に無ければ使いません</small></label>
+  <label>始業時に置く作業 <input name="start_items" value="{{ st.start_items }}"></label>
+  <label>終業時に置く作業 <input name="end_items" value="{{ st.end_items }}"></label>
+  <label>推定から除く作業 <input name="exclude_items" value="{{ st.exclude_items }}"><small>行事の時だけの作業（研修・会議など）</small></label>
+  <label>昼礼の時刻 <input name="noon_meeting" value="{{ st.noon_meeting }}"></label>
+  <label>タスクリレーで残す基本作業（分） <input name="tr_keep" type="number" value="{{ st.tr_keep }}"><small>1日のタスクリレー上限＝基本作業−この分数</small></label>
+
+  <h2>労働時間予算との比較</h2>
+  <label>月度の開始日 <input name="month_start_day" type="number" min="1" max="28" value="{{ st.month_start_day }}"><small>16＝前月16日〜当月15日（労働時間予算の「3月」＝2/16〜3/15）。予算・計画・実績をこの区切りで集計</small></label>
+  <label>有休・会議・研修を労働時間に含める（1日あたりh） <input name="leave_hours" type="number" step="0.5" value="{{ st.leave_hours }}"><small>0＝含めない。予算に有休等が含まれる場合に設定（例：7.5）</small></label>
+  <label>対象とする区分 <input name="leave_kinds" value="{{ st.leave_kinds }}"><small>月間稼働表の区分（有休・会議・研修など）</small></label>
+
+  <h2>予測</h2>
+  <label>作業推定に使う実績（日数） <input name="history_days" type="number" value="{{ st.history_days }}"></label>
+  <label>来客予測に使う週数 <input name="ref_weeks" type="number" value="{{ st.ref_weeks }}"></label>
+  <label>予測から除く行事のキーワード <input name="spike_keywords" value="{{ st.spike_keywords }}"></label>
+
+  <div class="actions">
+    <button class="primary">保存</button>
+    <button name="reset" value="1" class="ghost" onclick="return confirm('初期値に戻しますか？')">初期値に戻す</button>
+    <a href="/store/{{ s.id }}" class="btn ghost">戻る</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}マスタ・設定｜日別稼働計画{% endblock %}
+{% block crumbs %}<a href="/">トップ</a> › マスタ・設定{% endblock %}
+{% block body %}
+<h1>マスタ・設定</h1>
+<nav class="tabs">
+  {% for k, label in [('org', '会社・事業部'), ('filter', '表示設定'), ('import', 'マスタ取込'), ('users', 'ユーザー管理')] %}
+  <a href="/admin?tab={{ k }}" class="{{ 'on' if tab == k else '' }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+{% if tab == 'filter' %}
+{% include "_admin_filter.html" %}
+{% elif tab == 'import' %}
+{% include "_admin_import.html" %}
+{% elif tab == 'users' %}
+{% include "_admin_users.html" %}
+{% else %}
+{% include "_admin_org.html" %}
+{% endif %}
+{% endblock %}

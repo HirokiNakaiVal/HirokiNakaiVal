@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}ログイン｜日別稼働計画{% endblock %}
+{% block body %}
+<section class="card loginbox">
+  <h1>ログイン</h1>
+  {% if err %}<div class="msg err">{{ err }}</div>{% endif %}
+  <form method="post" action="/login" autocomplete="off">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>ID <input name="login_id" value="{{ login_id or '' }}" required autofocus inputmode="numeric"></label>
+    <label>パスワード <input name="password" type="password" required></label>
+    <button class="primary">ログイン</button>
+  </form>
+  <p class="muted small">個人情報を含むため、ログインが必要です。IDやパスワードが分からない場合は管理者に連絡してください。</p>
+</section>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ d.name }}｜日別稼働計画{% endblock %}
+{% block crumbs %}{{ c.name if c else '' }} › <b>{{ d.name }}</b>{% endblock %}
+{% block body %}
+<div class="row-head">
+  <h1>{{ d.name }} <span class="code">事業部 {{ d.code }}</span></h1>
+  <span>
+    {% if n_hidden %}{% if show_all %}<a class="btn ghost small" href="/division/{{ d.id }}">非表示の店舗を隠す</a>{% else %}<a class="btn ghost small" href="/division/{{ d.id }}?all=1">非表示の店舗も表示（{{ n_hidden }}店）</a>{% endif %}{% endif %}
+    <input id="flt" placeholder="店舗名・コードで絞り込み" oninput="flt(this.value)" size="28">
+  </span>
+</div>
+<p class="muted small">労働時間予算は、<a href="/admin?tab=import">マスタ・設定の「マスタ取込」</a>から取り込みます（取込済み {{ lab|length }}店舗）。</p>
+<section class="card">
+  <table class="list compact" id="stores">
+    <thead><tr><th>店舗コード</th><th>店舗</th><th>月間稼働表</th><th>KADOU実績</th><th>売上実績</th><th>労働時間予算</th><th>直近の作成</th></tr></thead>
+    <tbody>
+    {% for s in stores %}{% set cv = cov.get(s.id, {}) %}{% set lj = last.get(s.id) %}
+    <tr data-k="{{ s.code }} {{ s.name }}">
+      <td>{{ s.code }}</td>
+      <td><a href="/store/{{ s.id }}"><b>{{ s.name }}</b></a>{% if s.visible == 0 %} <span class="tag">非表示</span>{% endif %}</td>
+      <td>{% if cv.plan %}{{ cv.plan.start }}〜{{ cv.plan.end }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if cv.kadou %}{{ cv.kadou.start }}〜{{ cv.kadou.end }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if cv.sales_hour %}〜{{ cv.sales_hour.end }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% set lb = lab.get(s.id) %}{% if lb %}{{ lb.a }}〜{{ lb.b }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if lj %}<a href="/job/{{ lj.id }}">{{ lj.date_from }}{% if lj.date_to != lj.date_from %}〜{{ lj.date_to }}{% endif %}</a> <span class="badge s-{{ lj.status }}">{{ lj.status }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="muted">店舗がありません</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+<script>
+function flt(v){ v=v.trim(); document.querySelectorAll('#stores tbody tr[data-k]').forEach(function(tr){
+  tr.style.display = (!v || tr.dataset.k.indexOf(v) >= 0) ? '' : 'none'; }); }
+</script>
+{% endblock %}

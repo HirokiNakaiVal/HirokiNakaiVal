@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="card picker">
+  <h2>店舗を選ぶ</h2>
+  <form id="pick" class="pickrow" onsubmit="return go()">
+    <label>会社<select id="selC" onchange="loadDiv()"><option value="">選択してください</option>
+      {% for c in companies %}<option value="{{ c.id }}">{{ c.code }}　{{ c.name }}</option>{% endfor %}</select></label>
+    <label>事業部<select id="selD" onchange="loadStore()" disabled><option value="">会社を先に選択</option></select></label>
+    <label>店舗<select id="selS" onchange="sync()" disabled><option value="">事業部を先に選択</option></select></label>
+    <button id="goBtn" class="primary" disabled>開く</button>
+  </form>
+  <p class="muted small">★はデータを取り込み済みの店舗です。前回選んだ店舗を記憶します。</p>
+</section>
+<script>
+var selC = document.getElementById('selC'), selD = document.getElementById('selD'),
+    selS = document.getElementById('selS'), goBtn = document.getElementById('goBtn');
+function opt(sel, rows, empty, star){
+  sel.innerHTML = '<option value="">' + empty + '</option>' + rows.map(function(r){
+    return '<option value="' + r.id + '">' + (star && r.data ? '★ ' : '') + r.code + '　' + r.name + '</option>'; }).join('');
+  sel.disabled = rows.length === 0;
+}
+function save(){ try { localStorage.setItem('kadouPick', JSON.stringify({c: selC.value, d: selD.value, s: selS.value})); } catch(e){} }
+function sync(){ goBtn.disabled = !selS.value; save(); }
+function loadDiv(keep){
+  opt(selS, [], '事業部を先に選択'); selS.disabled = true;
+  if (!selC.value){ opt(selD, [], '会社を先に選択'); selD.disabled = true; sync(); return Promise.resolve(); }
+  return fetch('/api/orgs?kind=division&parent=' + selC.value).then(function(r){ return r.json(); }).then(function(rows){
+    opt(selD, rows, '選択してください（' + rows.length + '）');
+    if (keep && keep.d){ selD.value = keep.d; return loadStore(keep); } sync(); });
+}
+function loadStore(keep){
+  if (!selD.value){ opt(selS, [], '事業部を先に選択'); selS.disabled = true; sync(); return Promise.resolve(); }
+  return fetch('/api/orgs?kind=store&parent=' + selD.value).then(function(r){ return r.json(); }).then(function(rows){
+    rows.sort(function(a, b){ return (b.data - a.data); });
+    opt(selS, rows, '選択してください（' + rows.length + '店）', true);
+    if (keep && keep.s) selS.value = keep.s; sync(); });
+}
+function go(){ if (selS.value) location.href = '/store/' + selS.value; return false; }
+(function(){
+  var k = null; try { k = JSON.parse(localStorage.getItem('kadouPick') || 'null'); } catch(e){}
+  if (k && k.c){ selC.value = k.c; if (selC.value) loadDiv(k); }
+  else if (selC.options.length === 2){ selC.selectedIndex = 1; loadDiv(); }
+})();
+</script>
+
+<section class="card">
+  <form method="get" action="/" class="inline search">
+    <input name="q" value="{{ q }}" placeholder="店舗名・店舗コードで検索（例：高山、2001）" size="40">
+    <button class="primary">検索</button>
+    {% if q %}<a href="/" class="btn ghost">クリア</a>{% endif %}
+    <span class="muted small">登録店舗 {{ '{:,}'.format(n_store) }} 件</span>
+  </form>
+  {% if q %}
+  <table class="list compact">
+    <thead><tr><th>店舗コード</th><th>店舗</th><th>事業部</th><th>会社</th><th>月間稼働表</th></tr></thead>
+    <tbody>
+    {% for s in hits %}
+    <tr>
+      <td>{{ s.code }}</td><td><a href="/store/{{ s.id }}"><b>{{ s.name }}</b></a></td>
+      <td><a href="/division/{{ s.parent_id }}">{{ s.dname }}</a> <span class="code">{{ s.dcode }}</span></td><td>{{ s.cname }}</td>
+      <td>{% set cv = cov.get(s.id, {}) %}{% if cv.plan %}{{ cv.plan.start }}〜{{ cv.plan.end }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">「{{ q }}」に一致する店舗はありません</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if hits|length == 200 %}<p class="muted small">200件まで表示しています。条件を絞ってください。</p>{% endif %}
+  {% endif %}
+</section>
+
+{% if active %}
+<section class="card">
+  <h2>データを取り込んだ店舗</h2>
+  <table class="list compact">
+    <thead><tr><th>店舗</th><th>会社・事業部</th><th>月間稼働表</th><th>KADOU実績</th><th>売上実績</th><th>直近の作成</th></tr></thead>
+    <tbody>
+    {% for s in active %}{% set cv = cov.get(s.id, {}) %}{% set lj = last.get(s.id) %}
+    <tr>
+      <td><a href="/store/{{ s.id }}"><b>{{ s.name }}</b></a> <span class="code">{{ s.code }}</span></td>
+      <td class="small">{{ s.cname }} › {{ s.dname }}</td>
+      <td>{% if cv.plan %}{{ cv.plan.start }}〜{{ cv.plan.end }}{% else %}<span class="muted">未取込</span>{% endif %}</td>
+      <td>{% if cv.kadou %}{{ cv.kadou.start }}〜{{ cv.kadou.end }}{% else %}<span class="muted">未取込</span>{% endif %}</td>
+      <td>{% if cv.sales_hour %}〜{{ cv.sales_hour.end }}{% else %}<span class="muted">未取込</span>{% endif %}</td>
+      <td>{% if lj %}<a href="/job/{{ lj.id }}">{{ lj.date_from }}{% if lj.date_to != lj.date_from %}〜{{ lj.date_to }}{% endif %}</a> <span class="badge s-{{ lj.status }}">{{ lj.status }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}

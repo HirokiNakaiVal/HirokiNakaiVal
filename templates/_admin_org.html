@@ -1,0 +1,27 @@
+<section class="card">
+  <div class="row-head"><h2>会社・事業部</h2><a class="btn ghost small" href="/admin?tab=filter">表示設定へ</a></div>
+  {% if not tree %}
+  <p class="muted">まだ組織が登録されていません。「マスタ取込」タブから会社事業部・会社事業部店舗のExcelを取り込んでください。</p>
+  {% endif %}
+  {% for c in tree %}
+  <details class="company" {% if loop.length <= 3 %}open{% endif %}>
+    <summary><b>{{ c.c.name }}</b> <span class="code">会社 {{ c.c.code }}</span>
+      <span class="muted small">事業部 {{ c.divs|length }}</span></summary>
+    <div class="divgrid">
+      {% for d in c.divs %}
+      <a class="divcard" href="/division/{{ d.id }}">
+        <span class="code">{{ d.code }}</span> {{ d.name }}
+        <span class="muted small">{{ counts.get(d.id, 0) }}店</span>
+      </a>
+      {% endfor %}
+    </div>
+    <details class="mini"><summary>会社名を変更</summary>
+      <form method="post" action="/org/{{ c.c.id }}/rename" class="inline">
+        <input name="code" value="{{ c.c.code or '' }}" size="5" readonly title="コードはマスタで管理">
+        <input name="name" value="{{ c.c.name }}" required><button>変更</button>
+      </form>
+      <span class="muted small">会社名はマスタに無いため、事業部名から仮に付けています。</span>
+    </details>
+  </details>
+  {% endfor %}
+</section>

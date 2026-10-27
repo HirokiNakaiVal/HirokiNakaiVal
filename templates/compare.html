@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}労働時間予算の比較｜{{ s.name }}{% endblock %}
+{% block crumbs %}{{ c.name if c else '' }} › {% if d %}<a href="/division/{{ d.id }}">{{ d.name }}</a>{% endif %} › <a href="/store/{{ s.id }}">{{ s.name }}</a> › 労働時間予算の比較{% endblock %}
+{% block body %}
+<div class="row-head">
+  <h1>月度計画と労働時間予算</h1>
+  {% if res %}<a class="btn primary" href="/store/{{ s.id }}/compare.xlsx?date_from={{ date_from }}&date_to={{ date_to }}">Excelでダウンロード</a>{% endif %}
+</div>
+
+<section class="card">
+  <form method="get" class="inline gen">
+    <label>月度
+      <select onchange="var v=this.value.split('|'); this.form.date_from.value=v[0]; this.form.date_to.value=v[1]; this.form.submit();">
+        {% for a, b in periods %}<option value="{{ a }}|{{ b }}" {% if a == date_from and b == date_to %}selected{% endif %}>{{ a }}〜{{ b }}</option>{% endfor %}
+      </select></label>
+    <label>開始 <input type="date" name="date_from" value="{{ date_from }}"></label>
+    <label>終了 <input type="date" name="date_to" value="{{ date_to }}"></label>
+    <button>比較する</button>
+  </form>
+</section>
+
+{% if err %}<div class="msg err">{{ err }}</div>{% endif %}
+{% if res %}{% set S = res.summary %}
+<section class="card">
+  <h2>{{ S.period }}（{{ S.days }}日）　<span class="muted small">{{ S.getsudo|join('・') }}</span></h2>
+  <div class="kpis">
+    <div><span>労働時間予算</span><b>{{ '{:,.1f}'.format(S.budget) }}h</b>
+      <span>正社員 {{ '{:,.0f}'.format(S.budget_regular) }}・パート {{ '{:,.0f}'.format(S.budget_part) }}{% if S.budget_arbeit %}・アルバイト {{ '{:,.0f}'.format(S.budget_arbeit) }}{% endif %}</span></div>
+    <div><span>計画実働</span><b>{{ '{:,.1f}'.format(S.plan_in_budget_days) }}h</b></div>
+    <div class="{{ 'bad' if S.diff > 0 else 'good' }}"><span>差（計画−予算）</span><b>{{ '{:+,.1f}'.format(S.diff) }}h</b>
+      <span>{{ '{:+.1%}'.format(S.diff / S.budget) if S.budget else '' }}</span></div>
+    <div><span>修正案</span><b>{{ '{:+,.1f}'.format(S.proposal) }}h</b><span>修正後 {{ '{:,.1f}'.format(S.after) }}h</span></div>
+    {% if S.actual_days %}<div><span>実績（KADOU・{{ S.actual_days }}日分）</span><b>{{ '{:,.1f}'.format(S.actual) }}h</b>
+      <span>同じ日の予算 {{ '{:,.1f}'.format(S.actual_budget) }}h（{{ '{:+,.1f}'.format(S.actual - S.actual_budget) }}h）</span></div>{% endif %}
+  </div>
+  {% if S.mode == '削減' %}
+  <div class="msg err">月度の計画が予算を {{ '{:,.1f}'.format(S.diff) }}h 超えています。超過の大きい日から、来客の少ない時間帯の短縮案（足りない日は公休への変更候補）を出しています。</div>
+  {% elif S.mode == '平準化' %}
+  <div class="msg">月度の計画は予算内です（{{ '{:,.1f}'.format(-S.diff) }}h 少ない）。
+    {% if res.actions|length %}予算を超える日（{{ S.over_days }}日）は、余裕のある日へ回す平準化案を出しています。{% else %}日ごとに見ても予算を超える日はありません。{% endif %}
+    余裕のある日は {{ S.under_days }}日・計 {{ '{:,.1f}'.format(S.room_total) }}h で、来客の多い時間帯に人を足せます。</div>
+  {% endif %}
+  <p class="muted small">日割の方法：{{ S.how|join('・') }}。
+    有休・会議等：{% for k, v in S.leave.items() %}{{ k }}{{ v }}日 {% endfor %}
+    {% if S.leave_hours %}（1日{{ S.leave_hours }}hとして計画に含めています）{% else %}（計画に含めていません。予算に含まれる場合は<a href="/store/{{ s.id }}/settings">店舗の設定</a>で1日の時間を指定。仮に7.5hなら +{{ '{:,.1f}'.format(S.leave_days * 7.5) }}h）{% endif %}</p>
+  {% for n in S.notes %}<div class="warn">{{ n }}</div>{% endfor %}
+</section>
+
+<section class="card">
+  <h2>日別</h2>
+  <div class="scroll">
+  <table class="list compact num">
+    <thead><tr><th>日付</th><th>曜</th><th>行事</th><th>売上予算</th><th>出勤</th><th>予算h</th><th>計画h</th><th>差</th><th>修正案</th><th>修正後の差</th><th>実績h</th><th>実績−予算</th><th></th></tr></thead>
+    <tbody>
+    {% for r in res.days.itertuples() %}{% set df = (r.計画実働 - r.予算) if r.予算 == r.予算 and r.予算 is not none else none %}
+    <tr>
+      <td>{{ r.日付.strftime('%m/%d') }}</td><td>{{ r.曜日 }}</td><td class="small left">{{ r.行事 if r.行事 == r.行事 and r.行事 else '' }}</td>
+      <td>{{ '{:,.0f}'.format(r.売上予算 / 1000) ~ '千' if r.売上予算 == r.売上予算 and r.売上予算 else '' }}</td>
+      <td>{{ r.出勤人数 }}</td><td>{{ '{:.1f}'.format(r.予算) if df is not none else '—' }}</td><td>{{ '{:.1f}'.format(r.計画実働) }}</td>
+      <td class="{{ 'short' if df is not none and df > 2 else '' }}">{{ '{:+.1f}'.format(df) if df is not none else '' }}</td>
+      <td>{{ '{:+.1f}'.format(r.修正案) if r.修正案 else '' }}</td>
+      <td>{{ '{:+.1f}'.format(df + r.修正案) if df is not none and r.修正案 else '' }}</td>
+      {% set ac = r.実績 if r.実績 == r.実績 else none %}
+      <td>{{ '{:.1f}'.format(ac) if ac is not none else '' }}</td>
+      <td>{{ '{:+.1f}'.format(ac - r.予算) if ac is not none and df is not none else '' }}</td>
+      <td class="bar">{% if df is not none %}<span class="{{ 'neg' if df > 0 else 'pos' }}" style="width: {{ [((df|abs) / 3)|round|int, 100]|min }}px"></span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+{% if res.actions|length %}
+<section class="card">
+  <h2>修正案（{{ res.actions|length }}件・{{ '{:+,.1f}'.format(S.proposal) }}h）</h2>
+  <p class="muted small">来客の少ない時間帯にかかる勤務の端を30〜60分短縮（マネジメント・4時間以下の勤務は除く、閉店・開店の担当は同じ部門に1人残る場合のみ、同じ日の同じ時間帯は2人まで）。最終判断は店舗で行ってください。</p>
+  <div class="scroll">
+  <table class="list compact">
+    <thead><tr><th>日付</th><th>種類</th><th>部門</th><th>社員名</th><th>現在</th><th>修正後</th><th class="right">増減h</th><th>理由</th></tr></thead>
+    <tbody>
+    {% for a in res.actions.itertuples() %}
+    <tr><td>{{ a.日付.strftime('%m/%d') }}</td><td>{{ a.種類 }}</td><td>{{ a.部門 }}</td><td>{{ a.社員名 }}</td><td>{{ a.現在 }}</td>
+      <td><b>{{ a.修正後 }}</b></td><td class="right">{{ '{:+.2f}'.format(a.増減h) }}</td><td class="small">{{ a.理由 }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endif %}
+
+{% if res.room|length %}
+<section class="card">
+  <h2>余裕のある日（{{ res.room|length }}日・{{ '{:,.1f}'.format(S.room_total) }}h）</h2>
+  <table class="list compact">
+    <thead><tr><th>日付</th><th class="right">余裕h</th><th>来客の多い時間帯（追加するなら）</th></tr></thead>
+    <tbody>{% for r in res.room.itertuples() %}<tr><td>{{ r.日付.strftime('%m/%d') }}（{{ '月火水木金土日'[r.日付.weekday()] }}）</td><td class="right">{{ r.余裕h }}</td><td>{{ r.来客の多い時間帯 }}</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+{% endif %}
+
+<div class="grid2">
+<section class="card">
+  <h2>部署別</h2>
+  <table class="list compact num">
+    <thead><tr><th>部門</th><th>人数</th><th>出勤延べ</th><th>計画h</th></tr></thead>
+    <tbody>{% for r in res.dept.itertuples() %}<tr><td>{{ r.部門 }}</td><td>{{ r.人数 }}</td><td>{{ r.出勤延べ }}</td><td>{{ '{:,.1f}'.format(r.計画実働) }}</td></tr>{% endfor %}</tbody>
+  </table>
+</section>
+<section class="card">
+  <h2>個人別</h2>
+  <div class="scroll short">
+  <table class="list compact num">
+    <thead><tr><th>社員名</th><th>部門</th><th>出勤日数</th><th>計画h</th><th>修正案h</th></tr></thead>
+    <tbody>{% for r in res.person.itertuples() %}<tr><td>{{ r.社員名 }}</td><td class="left">{{ r.部門 }}</td><td>{{ r.出勤日数 }}</td><td>{{ '{:,.1f}'.format(r.計画実働) }}</td><td>{{ '{:+.1f}'.format(r.修正案) if r.修正案 else '' }}</td></tr>{% endfor %}</tbody>
+  </table>
+  </div>
+</section>
+</div>
+{% endif %}
+{% endblock %}

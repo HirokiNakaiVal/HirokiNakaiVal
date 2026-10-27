@@ -1,0 +1,45 @@
+<section class="card">
+  <table class="list compact">
+    <thead><tr><th>ID</th><th>名前</th><th>最終ログイン</th><th>パスワード変更日</th><th>パスワード再設定</th><th></th></tr></thead>
+    <tbody>
+    {% for x in users %}
+    <tr>
+      <td><b>{{ x.login_id }}</b>{% if x.id == request.state.user.id %} <span class="tag">自分</span>{% endif %}</td>
+      <td>{{ x.name or '' }}</td>
+      <td class="small">{{ x.last_login or '—' }}</td>
+      <td class="small">{{ x.pw_changed_at or '（初期のまま）' }}{% if x.must_change %} <span class="tag">変更待ち</span>{% endif %}</td>
+      <td>
+        <form method="post" action="/admin/users/{{ x.id }}/reset" class="inline" onsubmit="return confirm('{{ x.login_id }} のパスワードを再設定しますか？')">
+          <input name="password" type="password" placeholder="新しいパスワード" minlength="8" required size="14"><button class="small">再設定</button>
+        </form>
+      </td>
+      <td>{% if x.id != request.state.user.id %}
+        <form method="post" action="/admin/users/{{ x.id }}/delete" onsubmit="return confirm('{{ x.login_id }} を削除しますか？')"><button class="danger small">削除</button></form>
+      {% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+<section class="card">
+  <h2>ユーザーを追加</h2>
+  <form method="post" action="/admin/users/add" class="inline" autocomplete="off">
+    <input name="login_id" placeholder="ID（社員番号など）" required>
+    <input name="name" placeholder="名前">
+    <input name="password" type="password" placeholder="初期パスワード（8文字以上）" minlength="8" required>
+    <button class="primary">追加</button>
+  </form>
+  <p class="muted small">ログインしたユーザーは、店舗のデータ取込・日別稼働表の作成・比較が使えます。マスタ・設定は、さらに管理者パスワードの入力が必要です。
+    パスワードは8文字以上（IDと同じもの、同じ数字だけのものは不可）。保存はハッシュ化して行い、元のパスワードは保存しません。</p>
+</section>
+<section class="card">
+  <h2>管理者パスワード（マスタ・設定に入るとき）</h2>
+  <p class="muted small">{% if admin_pw_changed %}最終変更：{{ admin_pw_changed }}{% else %}<span class="warn">初期（999999）のままです。変更してください。</span>{% endif %}
+    　入力後、操作の無いまま30分たつか「管理を終了」を押すと、再び入力が必要になります。</p>
+  <form method="post" action="/admin/password" class="inline" autocomplete="off">
+    <input name="current" type="password" placeholder="今の管理者パスワード" required>
+    <input name="new1" type="password" placeholder="新しい管理者パスワード（8文字以上）" minlength="8" required>
+    <input name="new2" type="password" placeholder="確認" minlength="8" required>
+    <button class="primary">変更</button>
+  </form>
+</section>

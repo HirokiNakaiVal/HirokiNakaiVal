@@ -1,0 +1,57 @@
+<section class="card">
+  <h2>マスタを取り込む</h2>
+  <p class="muted">snowhc から抽出した「会社事業部.xlsx」「会社事業部店舗.xlsx」を選んでください（2つ同時でも、片方だけでも可）。
+    コードが同じものは名称・所属を更新し、無いものは追加します。手で登録した組織は、コードを読み替えて引き継ぎます（会社00→0、店舗001→事業部コード×1000＋1）。</p>
+  <h3>会社・事業部・店舗</h3>
+  <form method="post" action="/master/import" enctype="multipart/form-data" class="upload">
+    <input type="file" name="files" multiple accept=".xlsx" required>
+    <button class="primary">マスタを取り込む</button>
+  </form>
+
+  <h3>労働時間予算</h3>
+  <p class="muted small">「○期労働時間予算.xls」（店番×月、正社員・パート・アルバイト）を取り込みます。店番は 店舗コード＝事業部コード×1000＋店番 で対応づけます（例：バローＨＣの店番1 → 2001）。
+    ファイルに事業部と年が書かれていないため、取り込む事業部と期首（3月の列）の年月を選んでください。同じ店舗・月は上書きします。</p>
+  <form method="post" action="/master/labor" enctype="multipart/form-data" class="upload">
+    <input type="file" name="file" accept=".xls,.xlsx" required>
+    <label>事業部 <select name="division_id" required>
+      <option value="">選択してください</option>
+      {% for x in lab_divs %}<option value="{{ x.id }}" {% if x.id == lab_default %}selected{% endif %}>{{ x.code }}　{{ x.name }}</option>{% endfor %}
+    </select></label>
+    <label>期首 <input type="month" name="start_ym" value="{{ default_ym }}" required></label>
+    <button class="primary">労働時間予算を取り込む</button>
+  </form>
+  {% if lab_div %}
+  <table class="list compact">
+    <thead><tr><th>事業部</th><th>期</th><th>取込済み店舗</th><th>期間</th><th>取込日時</th></tr></thead>
+    <tbody>
+    {% for x in divisions if x.id in lab_div %}{% set r = lab_div[x.id] %}
+    <tr><td><a href="/division/{{ x.id }}">{{ x.code }}　{{ x.name }}</a></td><td>{{ r.ki or '' }}期</td><td>{{ r.n }}店</td><td>{{ r.a[:4] }}年{{ r.a[5:7]|int }}月度〜{{ r.b[:4] }}年{{ r.b[5:7]|int }}月度</td><td class="small">{{ r.t }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <details>
+    <summary class="muted small">手で登録する（マスタに無い会社・事業部・店舗）</summary>
+    <div class="grid3">
+      <form method="post" action="/org/add" class="stack">
+        <input type="hidden" name="kind" value="company"><b>会社</b>
+        <input name="code" placeholder="コード"><input name="name" placeholder="会社名" required>
+        <button>会社を登録</button>
+      </form>
+      <form method="post" action="/org/add" class="stack">
+        <input type="hidden" name="kind" value="division"><b>事業部</b>
+        <select name="parent_id" required><option value="">会社を選択</option>
+          {% for c in companies %}<option value="{{ c.id }}">{{ c.code }} {{ c.name }}</option>{% endfor %}</select>
+        <input name="code" placeholder="コード"><input name="name" placeholder="事業部名" required>
+        <button>事業部を登録</button>
+      </form>
+      <form method="post" action="/org/add" class="stack">
+        <input type="hidden" name="kind" value="store"><b>店舗</b>
+        <select name="parent_id" required><option value="">事業部を選択</option>
+          {% for d in divisions %}<option value="{{ d.id }}">{{ d.code }} {{ d.name }}</option>{% endfor %}</select>
+        <input name="code" placeholder="コード"><input name="name" placeholder="店舗名" required>
+        <button>店舗を登録</button>
+      </form>
+    </div>
+  </details>
+</section>

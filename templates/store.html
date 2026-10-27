@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ s.name }}｜日別稼働計画{% endblock %}
+{% block crumbs %}{{ c.name if c else '' }} › {% if d %}<a href="/division/{{ d.id }}">{{ d.name }}</a>{% endif %} › <b>{{ s.name }}</b>{% endblock %}
+{% block body %}
+<div class="row-head">
+  <h1>{{ s.name }} <span class="code">店舗 {{ s.code }}{% if sinfo.URIBA_MENSEKI %}・売場面積 {{ sinfo.URIBA_MENSEKI }}{% endif %}</span></h1>
+  <a class="btn ghost" href="/store/{{ s.id }}/settings">店舗の設定</a>
+</div>
+
+<section class="card">
+  <h2>1. データを取り込む</h2>
+  <p class="muted">ファイルをまとめて選べます。種類は自動で判別します：月間稼働表（OCTORのPDF）、タスクリレー（Excel）、KADOU実績（Excel・CSV）、時間帯別売上・時間帯別レジ別売上（Excel）、日割予算（PDF）。</p>
+  <form method="post" action="/store/{{ s.id }}/upload" enctype="multipart/form-data" class="upload">
+    <input type="file" name="files" multiple accept=".pdf,.xlsx,.xlsm,.xls,.csv" required>
+    <button>取り込む</button>
+  </form>
+  <table class="list compact">
+    <thead><tr><th>種類</th><th>取込済み期間</th><th>件数</th><th>用途</th></tr></thead>
+    <tbody>
+    {% set use = {'plan':'勤務（必須）','labor_budget':'','taskrelay':'タスクリレーの割当','kadou':'作業・休憩の推定（指定日の直前35日）','sales_hour':'来客予測','sales_reg':'レジの優先順','budget':'来客予測の補正'} %}
+    {% for k, v in cov.items() %}
+    <tr class="{{ 'missing' if not v.n else '' }}">
+      <td>{{ v.label }}</td>
+      <td>{% if v.n %}{{ v.start }}〜{{ v.end }}{% else %}未取込{% endif %}</td>
+      <td>{{ v.n }}</td><td class="muted">{{ use[k] }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if dup %}
+  <form method="post" action="/store/{{ s.id }}/dedupe" class="inline" onsubmit="return confirm('同じ内容のファイル{{ dup }}件を削除します。よろしいですか？')">
+    <span class="warn">同じ内容のファイルが{{ dup }}件重複して取り込まれています。</span><button class="small">重複を削除</button>
+  </form>
+  {% endif %}
+  <details>
+    <summary>取込済みファイル（{{ files|length }}件）</summary>
+    <table class="list compact">
+      <thead><tr><th>種類</th><th>ファイル名</th><th>期間</th><th>内容</th><th>取込日時</th><th></th></tr></thead>
+      <tbody>
+      {% for x in files %}
+      <tr>
+        <td>{{ x.kind }}</td>
+        <td>{{ x.f.filename }}{% if x.f.warning %}<div class="warn">※{{ x.f.warning }}</div>{% endif %}</td>
+        <td>{{ x.f.period_from }}〜{{ x.f.period_to }}</td>
+        <td class="muted small">{% for k, v in x.info.items() %}{{ k }}:{{ v }} {% endfor %}</td>
+        <td class="small">{{ x.f.uploaded_at }}</td>
+        <td><form method="post" action="/file/{{ x.f.id }}/delete" onsubmit="return confirm('削除しますか？')"><button class="danger small">削除</button></form></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</section>
+
+{% if labor_rows %}
+<section class="card">
+  <div class="row-head"><h2>労働時間予算と月間稼働表の計画</h2>
+    <a class="btn primary" href="/store/{{ s.id }}/compare">月度で比較・修正案を見る</a></div>
+  <table class="list compact num">
+    <thead><tr><th>月度</th><th>正社員</th><th>パート</th><th>アルバイト</th><th>予算 合計</th><th>計画実働</th><th>計画−予算</th><th>実績（KADOU）</th><th>実績−予算</th></tr></thead>
+    <tbody>
+    {% for r in labor_rows %}{% set pl = r.plan %}
+    <tr>
+      <td class="left">{{ r.label }}</td><td>{{ '{:,.1f}'.format(r.regular) }}</td><td>{{ '{:,.1f}'.format(r.part) }}</td><td>{{ '{:,.1f}'.format(r.arbeit) }}</td>
+      <td><b>{{ '{:,.1f}'.format(r.total) }}</b></td>
+      {% if pl and pl.days %}{% set full = pl.days == pl.month_days %}
+        <td>{{ '{:,.1f}'.format(pl.hours) }}{% if not full %} <span class="muted small">（{{ pl.days }}/{{ pl.month_days }}日）</span>{% endif %}</td>
+        <td class="{{ 'short' if full and pl.hours > r.total * 1.02 else '' }}">{% if full %}{{ '{:+,.1f}'.format(pl.hours - r.total) }}{% else %}<span class="muted small">月度の途中まで</span>{% endif %}</td>
+      {% else %}<td class="muted">—</td><td></td>{% endif %}
+      {% if pl and pl.actual is not none %}{% set fa = pl.actual_days == pl.month_days %}
+        <td>{{ '{:,.1f}'.format(pl.actual) }}{% if not fa %} <span class="muted small">（{{ pl.actual_days }}/{{ pl.month_days }}日）</span>{% endif %}</td>
+        <td class="{{ 'short' if fa and pl.actual > r.total * 1.02 else '' }}">{% if fa %}{{ '{:+,.1f}'.format(pl.actual - r.total) }}{% else %}<span class="muted small">月度の途中まで</span>{% endif %}</td>
+      {% else %}<td class="muted">—</td><td></td>{% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted small">月度＝前月{{ settings_sd if settings_sd is defined else 16 }}日〜当月15日（労働時間予算の「3月」＝2/16〜3/15）。計画実働＝月間稼働表の拘束時間−休憩（休憩はKADOU実績から推定）。実績＝KADOUの作業時間の合計（休憩を除く。KADOUには先の日付も予定として入っているため、今日より前の日だけ）。</p>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>2. 日別稼働表を作る</h2>
+  {% if days %}
+  <form method="post" action="/store/{{ s.id }}/generate" class="inline gen">
+    <label>開始日 <input type="date" name="date_from" min="{{ days[0] }}" max="{{ days[-1] }}" value="{{ days[0] }}" required></label>
+    <label>終了日 <input type="date" name="date_to" min="{{ days[0] }}" max="{{ days[-1] }}" placeholder="1日だけなら空欄"></label>
+    <button class="primary">作成する</button>
+  </form>
+  <p class="muted small">作成できる日：月間稼働表の {{ days[0] }}〜{{ days[-1] }}。終了日を空欄にすると1日分です（期間指定は最大63日）。</p>
+  {% else %}
+  <p class="muted">月間稼働表を取り込むと作成できます。</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>作成履歴</h2>
+  <table class="list compact">
+    <thead><tr><th>No</th><th>対象日</th><th>状態</th><th>依頼日時</th><th>完了日時</th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+    <tr>
+      <td><a href="/job/{{ j.id }}">#{{ j.id }}</a></td>
+      <td><a href="/job/{{ j.id }}">{{ j.date_from }}{% if j.date_to != j.date_from %}〜{{ j.date_to }}{% endif %}</a></td>
+      <td><span class="badge s-{{ j.status }}">{{ j.status }}</span> <span class="small muted">{{ j.progress or '' }}</span></td>
+      <td class="small">{{ j.created_at }}</td><td class="small">{{ j.finished_at or '' }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">まだありません</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

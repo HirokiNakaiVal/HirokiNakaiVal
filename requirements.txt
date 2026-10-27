@@ -1,0 +1,8 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+jinja2>=3.1
+python-multipart>=0.0.9
+pandas>=2.2
+openpyxl>=3.1
+pdfplumber>=0.11
+xlrd>=2.0

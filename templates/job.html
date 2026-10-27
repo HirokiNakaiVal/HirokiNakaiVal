@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}作成 #{{ j.id }}｜{{ s.name }}{% endblock %}
+{% block head %}{% if j.status in ('待機','実行中') %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block crumbs %}{{ c.name if c else '' }} › {% if d %}<a href="/division/{{ d.id }}">{{ d.name }}</a>{% endif %} › <a href="/store/{{ s.id }}">{{ s.name }}</a> › 作成 #{{ j.id }}{% endblock %}
+{% block body %}
+<div class="row-head">
+  <h1>{{ j.date_from }}{% if j.date_to != j.date_from %}〜{{ j.date_to }}{% endif %} <span class="badge s-{{ j.status }}">{{ j.status }}</span></h1>
+  {% if zipname %}<a class="btn primary" href="/job/{{ j.id }}/file/{{ zipname }}">まとめてダウンロード（zip）</a>{% endif %}
+</div>
+{% if j.status in ('待機','実行中') %}
+<p class="muted">作成中です… {{ j.progress or '' }}（この画面は自動で更新されます）</p>
+{% endif %}
+{% if j.error %}<div class="msg err">{{ j.error }}</div>{% endif %}
+
+{% for r in res %}
+<section class="card day">
+  {% if r.ok %}
+  <div class="row-head">
+    <h2>{{ r.day }}（{{ r.weekday }}）{% if r.event %}<span class="tag">{{ r.event }}</span>{% endif %}</h2>
+    <a class="btn" href="/job/{{ j.id }}/file/{{ r.file }}">Excelをダウンロード</a>
+  </div>
+  <div class="kpis">
+    <div><span>出勤</span><b>{{ r.workers }}人</b></div>
+    <div><span>予算</span><b>{% if r.budget %}{{ '{:,.0f}'.format(r.budget/1000) }}千円{% else %}—{% endif %}</b></div>
+    <div><span>予測客数</span><b>{{ '{:,}'.format(r.fc_total) }}人</b></div>
+    <div><span>タスクリレー</span><b>{{ r.tasks.count }}件・{{ r.tasks.minutes }}分</b></div>
+    <div><span>労働時間（計画／予算日割）</span><b>{{ r.planned_hours }}h{% if r.labor %}／{{ r.labor.day }}h{% endif %}</b>
+      {% if r.labor %}<span class="{{ 'warn' if r.labor.diff > r.labor.day * 0.05 else '' }}">差 {{ '{:+.1f}'.format(r.labor.diff) }}h</span>{% endif %}</div>
+  </div>
+  {% if r.warnings %}<ul class="warnlist">{% for w in r.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+  {% if r.notes %}<ul class="notelist">{% for w in r.notes %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+  <table class="list hours">
+    <thead><tr><th>時間帯</th>{% for h in r.hourly %}<th>{{ h.h }}時</th>{% endfor %}</tr></thead>
+    <tbody>
+      <tr><th>予測客数</th>{% for h in r.hourly %}<td>{{ h.fc }}</td>{% endfor %}</tr>
+      <tr><th>必要レジ</th>{% for h in r.hourly %}<td>{{ h.need }}</td>{% endfor %}</tr>
+      <tr><th>配置レジ</th>{% for h in r.hourly %}<td class="{{ 'short' if h.lanes + 0.25 < h.need else ('over' if h.lanes > h.need + 1.5 else '') }}">{{ h.lanes }}</td>{% endfor %}</tr>
+      {% if r.hourly and r.hourly[0].act is not none %}<tr class="muted"><th>実績客数</th>{% for h in r.hourly %}<td>{{ h.act if h.act is not none else '' }}</td>{% endfor %}</tr>{% endif %}
+    </tbody>
+  </table>
+  {% if r.tasks.by_person %}
+  <p class="small">タスクリレー割当：{% for k, v in r.tasks.by_person.items() %}{{ k }} {{ v }}分{% if r.tasks.carry.get(k) %}（持越し{{ r.tasks.carry[k] }}分）{% endif %}{% if not loop.last %}／{% endif %}{% endfor %}</p>
+  {% endif %}
+  {% else %}
+  <h2>{{ r.day }}</h2>
+  <div class="msg err">{{ r.error }}</div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}
