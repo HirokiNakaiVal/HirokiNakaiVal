@@ -1,18 +1,23 @@
 <section class="card">
   <table class="list compact">
-    <thead><tr><th>ID</th><th>名前</th><th>最終ログイン</th><th>パスワード変更日</th><th>パスワード再設定</th><th></th></tr></thead>
+    <thead><tr><th>ID</th><th>名前</th><th>認証</th><th>最終ログイン</th><th>パスワード変更日</th><th>パスワード再設定</th><th></th></tr></thead>
     <tbody>
     {% for x in users %}
     <tr>
       <td><b>{{ x.login_id }}</b>{% if x.id == request.state.user.id %} <span class="tag">自分</span>{% endif %}</td>
       <td>{{ x.name or '' }}</td>
+      <td>{% if x.auth == 'sso' %}<span class="tag">SSO</span>{% else %}ローカル{% endif %}</td>
       <td class="small">{{ x.last_login or '—' }}</td>
+      {% if x.auth == 'sso' %}
+      <td class="small muted">—（SSOで管理）</td><td></td>
+      {% else %}
       <td class="small">{{ x.pw_changed_at or '（初期のまま）' }}{% if x.must_change %} <span class="tag">変更待ち</span>{% endif %}</td>
       <td>
         <form method="post" action="/admin/users/{{ x.id }}/reset" class="inline" onsubmit="return confirm('{{ x.login_id }} のパスワードを再設定しますか？')">
           <input name="password" type="password" placeholder="新しいパスワード" minlength="8" required size="14"><button class="small">再設定</button>
         </form>
       </td>
+      {% endif %}
       <td>{% if x.id != request.state.user.id %}
         <form method="post" action="/admin/users/{{ x.id }}/delete" onsubmit="return confirm('{{ x.login_id }} を削除しますか？')"><button class="danger small">削除</button></form>
       {% endif %}</td>
@@ -24,13 +29,46 @@
 <section class="card">
   <h2>ユーザーを追加</h2>
   <form method="post" action="/admin/users/add" class="inline" autocomplete="off">
-    <input name="login_id" placeholder="ID（社員番号など）" required>
+    <input name="login_id" placeholder="ID（社員コード）" required>
     <input name="name" placeholder="名前">
-    <input name="password" type="password" placeholder="初期パスワード（8文字以上）" minlength="8" required>
+    <select name="method" onchange="this.form.password.style.display = this.value == 'local' ? '' : 'none'; this.form.password.required = this.value == 'local'">
+      <option value="sso">SSO（社内のパスワード）</option>
+      <option value="local">ローカル（このアプリのパスワード）</option>
+    </select>
+    <input name="password" type="password" placeholder="初期パスワード（8文字以上）" minlength="8" style="display:none">
     <button class="primary">追加</button>
   </form>
-  <p class="muted small">ログインしたユーザーは、店舗のデータ取込・日別稼働表の作成・比較が使えます。マスタ・設定は、さらに管理者パスワードの入力が必要です。
+  <p class="muted small">SSO：社員コードと社内のパスワードでログインします（このアプリにはパスワードを保存しません）。
+    ローカル：このアプリ専用のパスワードでログインします。SSOが止まったときのため、ローカルの管理用ユーザーを1人は残してください。<br>
+    ログインしたユーザーは、店舗のデータ取込・日別稼働表の作成・比較が使えます。マスタ・設定は、さらに管理者パスワードの入力が必要です。
     パスワードは8文字以上（IDと同じもの、同じ数字だけのものは不可）。保存はハッシュ化して行い、元のパスワードは保存しません。</p>
+</section>
+<section class="card">
+  <h2>SSO認証（社内シングルサインオン）</h2>
+  <form method="post" action="/admin/sso" name="ssoform" class="ssoform" autocomplete="off">
+    <label><input type="checkbox" name="enabled" value="1" {{ 'checked' if sso.enabled }}> SSO認証を使う</label>
+    <label>SSOのURL <input name="url" value="{{ sso.url }}" size="36" required></label>
+    <label>app_path <input name="app_path" value="{{ sso.app_path }}" size="20" placeholder="必須（AgentAuth）"></label>
+    <label>文字コード <select name="encoding">
+      {% for e in ['utf-8', 'shift_jis', 'euc-jp'] %}<option {{ 'selected' if sso.encoding == e }}>{{ e }}</option>{% endfor %}
+    </select></label>
+    <label><input type="checkbox" name="auto_register" value="1" {{ 'checked' if sso.auto_register }}> 登録の無い社員も、SSOで認証できればログインできる（自動でSSOユーザーとして登録）</label>
+    <button class="primary">保存</button>
+  </form>
+  <p class="warn small">このSSOサーバーは app_path 空白（REST）だと、パスワードが違っても成功を返します（検証されません）。
+    必ず app_path を設定して AgentAuth を使ってください。app_path の値は情報システム部（SSO管理者）に確認してください。</p>
+  <p class="muted small">社員コードとパスワードをSSOのURLへPOSTし、応答が200なら成功、404なら失敗とします。
+    app_pathが空白のときは module=SSO&amp;action=REST&amp;id=…&amp;pwd=…、空白でないときは module=SSO&amp;action=AgentAuth&amp;login_id=…&amp;login_password=…&amp;app_path=… を送ります。
+    自動登録をしない場合、登録の無い社員コードはSSOに問い合わせずに失敗とします。</p>
+  <h3>接続テスト</h3>
+  <form method="post" action="/admin/sso/test" class="inline" autocomplete="off"
+        onsubmit="var f=document.forms['ssoform'];this.url.value=f.url.value;this.app_path.value=f.app_path.value;this.encoding.value=f.encoding.value">
+    <input name="login_id" placeholder="社員コード" required>
+    <input name="password" type="password" placeholder="パスワード" required>
+    <input type="hidden" name="url"><input type="hidden" name="app_path"><input type="hidden" name="encoding">
+    <button>テスト</button>
+  </form>
+  <p class="muted small">上の入力欄に表示されている接続先（URL・app_path・文字コード）で、SSOサーバーに問い合わせた結果だけを表示します（ログインはしません）。保存していなくても試せます。</p>
 </section>
 <section class="card">
   <h2>管理者パスワード（マスタ・設定に入るとき）</h2>
