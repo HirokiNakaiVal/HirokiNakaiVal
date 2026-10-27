@@ -71,7 +71,10 @@ def login_post(request: Request, login_id: str = Form(...), password: str = Form
     wait = auth.locked(login_id)
     if wait:
         return page(request, "login.html", next=_safe_next(next), err=f"ログインに続けて失敗したため、{wait // 60 + 1}分ほど待ってからやり直してください", login_id=login_id)
-    u = auth.authenticate(login_id, password)
+    try:
+        u = auth.authenticate(login_id, password)
+    except auth.AuthError as e:
+        return page(request, "login.html", next=_safe_next(next), err=str(e), login_id=login_id)
     if not u:
         return page(request, "login.html", next=_safe_next(next), err="IDまたはパスワードが違います", login_id=login_id)
     resp = RedirectResponse(_safe_next(next), 303)
@@ -93,7 +96,8 @@ def password_page(request: Request, msg: str = ""):
 def password_post(request: Request, current: str = Form(...), new1: str = Form(...), new2: str = Form(...)):
     u = request.state.user
     err = None
-    if not auth.check_pw(current, u["pw_hash"], u["salt"]): err = "今のパスワードが違います"
+    if auth.is_sso(u): err = "SSOで認証しているため、このアプリではパスワードを変更できません"
+    elif not auth.check_pw(current, u["pw_hash"], u["salt"]): err = "今のパスワードが違います"
     elif new1 != new2: err = "新しいパスワード（確認）が一致しません"
     else: err = auth.password_problem(new1, u["login_id"])
     if err: return page(request, "password.html", err=err, msg="")
@@ -149,19 +153,23 @@ def users_page(msg: str = ""):
     return RedirectResponse("/admin?tab=users" + ("&msg=" + quote(msg) if msg else ""), 303)
 
 @app.post("/admin/users/add")
-def users_add(login_id: str = Form(...), name: str = Form(""), password: str = Form(...)):
+def users_add(login_id: str = Form(...), name: str = Form(""), password: str = Form(""), method: str = Form("sso")):
     login_id = login_id.strip()
+    method = "local" if method == "local" else "sso"
     if not login_id: return RedirectResponse("/admin?tab=users&msg=" + quote("IDを入力してください"), 303)
     if auth.user_by_login(login_id): return RedirectResponse("/admin?tab=users&msg=" + quote(f"ID {login_id} は登録済みです"), 303)
-    pr = auth.password_problem(password, login_id)
-    if pr: return RedirectResponse("/admin?tab=users&msg=" + quote(pr), 303)
-    auth.add_user(login_id, name.strip(), password, False)
-    return RedirectResponse("/admin?tab=users&msg=" + quote(f"ユーザー {login_id} を登録しました（初回ログイン後にパスワード変更を案内します）"), 303)
+    if method == "local":
+        pr = auth.password_problem(password, login_id)
+        if pr: return RedirectResponse("/admin?tab=users&msg=" + quote(pr), 303)
+    auth.add_user(login_id, name.strip(), password, False, method=method)
+    note = "SSOのパスワードでログインします" if method == "sso" else "初回ログイン後にパスワード変更を案内します"
+    return RedirectResponse("/admin?tab=users&msg=" + quote(f"ユーザー {login_id} を登録しました（{note}）"), 303)
 
 @app.post("/admin/users/{uid}/reset")
 def users_reset(uid: int, password: str = Form(...)):
     u = auth.user(uid)
     if not u: raise HTTPException(404)
+    if auth.is_sso(u): return RedirectResponse("/admin?tab=users&msg=" + quote(f"{u['login_id']} はSSOで認証するため、パスワードはありません"), 303)
     pr = auth.password_problem(password, u["login_id"])
     if pr: return RedirectResponse("/admin?tab=users&msg=" + quote(pr), 303)
     auth.set_password(uid, password, must_change=True)
@@ -177,6 +185,39 @@ def users_delete(request: Request, uid: int):
         return RedirectResponse("/admin?tab=users&msg=" + quote("ユーザーが1人もいなくなるため削除できません"), 303)
     db.x("DELETE FROM users WHERE id=?", (uid,))
     return RedirectResponse("/admin?tab=users&msg=" + quote(f"ユーザー {u['login_id']} を削除しました"), 303)
+
+@app.post("/admin/sso")
+def sso_save(url: str = Form(...), app_path: str = Form(""), encoding: str = Form("utf-8"),
+             enabled: str = Form(""), auto_register: str = Form("")):
+    url = url.strip()
+    if not re.match(r"^https?://[^\s/]+", url):
+        return RedirectResponse("/admin?tab=users&msg=" + quote("SSOのURLは http:// か https:// で始めてください"), 303)
+    if "testssoaccess" in url.lower():                     # 末尾が TestSsoAccess だと認証が飛ばされる（仕様書より）
+        return RedirectResponse("/admin?tab=users&msg=" + quote("TestSsoAccess を含むURLは認証が行われないため使えません"), 303)
+    encoding = encoding if encoding in ("utf-8", "shift_jis", "euc-jp") else "utf-8"
+    cfg = auth.sso_config()
+    cfg.update(url=url, app_path=app_path.strip(), encoding=encoding, enabled=bool(enabled), auto_register=bool(auto_register))
+    auth.set_sso_config(cfg)
+    return RedirectResponse("/admin?tab=users&msg=" + quote("SSOの設定を保存しました"), 303)
+
+@app.post("/admin/sso/test")
+def sso_test(login_id: str = Form(...), password: str = Form(...),
+             url: str = Form(""), app_path: str = Form(""), encoding: str = Form("")):
+    # 画面に入力されている接続先でテストする（保存していなくても試せる）。空欄なら保存済みの設定を使う
+    cfg = auth.sso_config()
+    if url.strip(): cfg["url"] = url.strip()
+    cfg["app_path"] = app_path.strip()
+    if encoding in ("utf-8", "shift_jis", "euc-jp"): cfg["encoding"] = encoding
+    try:
+        if not re.match(r"^https?://[^\s/]+", cfg["url"]):
+            raise auth.AuthError("SSOのURLは http:// か https:// で始めてください")
+        st = auth.sso_status(login_id.strip(), password, cfg)
+        msg = {200: "認証成功（ステータス 200）", 404: "認証失敗（ステータス 404）：社員コードかパスワードが違います"}.get(st, f"想定外の応答（ステータス {st}）")
+        if st == 200 and not cfg["app_path"]:
+            msg += "　※app_path が空白（REST）です。このSSOはRESTだとパスワードを検証せず成功を返すため、app_path を設定して AgentAuth を使ってください"
+    except auth.AuthError as e:
+        msg = str(e)
+    return RedirectResponse("/admin?tab=users&msg=" + quote(f"SSO接続テスト（{cfg['url']}）：" + msg), 303)
 
 def page(request, name, **ctx):
     return T.TemplateResponse(request, name, ctx)
@@ -241,6 +282,7 @@ def admin_page(request: Request, msg: str = "", tab: str = "org"):
     elif tab == "users":
         ctx["users"] = auth.users()
         ctx["admin_pw_changed"] = auth.admin_pw_changed_at()
+        ctx["sso"] = auth.sso_config()
     return page(request, "admin.html", **ctx)
 
 @app.get("/api/orgs")

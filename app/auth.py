@@ -1,5 +1,7 @@
-"""ログイン（ユーザー・パスワード・署名付きセッション）"""
+"""ログイン（ユーザー・パスワード・署名付きセッション、社内SSO認証）"""
 import os, json, time, hmac, base64, hashlib, secrets, threading
+import urllib.request, urllib.error
+from urllib.parse import quote_plus
 from . import db
 
 COOKIE = "kadou_session"
@@ -55,6 +57,8 @@ def init():
         if not c.execute("SELECT 1 FROM app_config WHERE key='admin_pw'").fetchone():
             h, s_ = hash_pw(INITIAL_ADMIN_PW)
             c.execute("INSERT INTO app_config VALUES('admin_pw', ?)", (json.dumps({"h": h, "s": s_, "changed": None}),))
+        if "auth" not in [r[1] for r in c.execute("PRAGMA table_info(users)")]:
+            c.execute("ALTER TABLE users ADD COLUMN auth TEXT DEFAULT 'local'")   # local / sso
         if not c.execute("SELECT 1 FROM users LIMIT 1").fetchone():
             h, s = hash_pw(INITIAL_PW)
             c.execute("INSERT INTO users(login_id,name,pw_hash,salt,is_admin,must_change,created_at) VALUES(?,?,?,?,1,1,?)",
@@ -70,10 +74,14 @@ def user(uid):
 def users():
     return db.q("SELECT * FROM users ORDER BY login_id")
 
-def add_user(login_id, name, pw, is_admin):
-    h, s = hash_pw(pw)
-    return db.x("INSERT INTO users(login_id,name,pw_hash,salt,is_admin,must_change,created_at) VALUES(?,?,?,?,?,1,?)",
-                (login_id, name, h, s, 1 if is_admin else 0, db.now()))
+def add_user(login_id, name, pw, is_admin, method="local"):
+    # SSOユーザーはこのアプリにパスワードを持たない（照合できない乱数を入れておく）
+    h, s = hash_pw(pw if method == "local" else secrets.token_hex(32))
+    return db.x("INSERT INTO users(login_id,name,pw_hash,salt,is_admin,must_change,created_at,auth) VALUES(?,?,?,?,?,?,?,?)",
+                (login_id, name, h, s, 1 if is_admin else 0, 1 if method == "local" else 0, db.now(), method))
+
+def is_sso(u):
+    return (u["auth"] if "auth" in u.keys() else "local") == "sso"
 
 def set_password(uid, pw, must_change=False):
     h, s = hash_pw(pw)
@@ -81,7 +89,7 @@ def set_password(uid, pw, must_change=False):
          (h, s, 1 if must_change else 0, db.now(), uid))
 
 def is_initial_pw(u):
-    return u["login_id"] == INITIAL_ID and check_pw(INITIAL_PW, u["pw_hash"], u["salt"])
+    return not is_sso(u) and u["login_id"] == INITIAL_ID and check_pw(INITIAL_PW, u["pw_hash"], u["salt"])
 
 def password_problem(pw, login_id=""):
     if len(pw) < 8: return "パスワードは8文字以上にしてください"
@@ -97,16 +105,83 @@ def locked(login_id):
         if n >= MAX_FAIL: _fail.pop(login_id, None)
     return 0
 
+class AuthError(Exception):
+    """ID・パスワード違い以外でログインできない（SSOに接続できない、未登録など）"""
+
 def authenticate(login_id, pw):
+    """ローカルユーザーはこのアプリのパスワード、それ以外はSSOで照合。成功ならユーザーを返す"""
     if locked(login_id): return None
     u = user_by_login(login_id)
-    ok = u is not None and check_pw(pw, u["pw_hash"], u["salt"])
+    err = None
+    if u is not None and not is_sso(u):
+        ok = check_pw(pw, u["pw_hash"], u["salt"])
+    else:
+        cfg = sso_config()
+        # 未登録のIDはSSOに問い合わせない（社員のパスワード確認に使われないように）
+        if not cfg["enabled"]:
+            ok = False
+        elif u is None and not cfg["auto_register"]:
+            ok, err = False, AuthError("このアプリの利用登録がありません。管理者に、マスタ・設定の「ユーザー管理」での登録を依頼してください")
+        else:
+            try:
+                ok = sso_check(login_id, pw, cfg)
+            except AuthError as e:
+                ok, err = False, e
+            if ok and u is None:
+                add_user(login_id, "", "", False, method="sso")
+                u = user_by_login(login_id)
     with _fail_lock:
         if ok: _fail.pop(login_id, None)
-        else:
+        elif err is None:                    # SSOに接続できないときはパスワード違いではないので数えない
             n, _ = _fail.get(login_id, (0, 0)); _fail[login_id] = (n + 1, time.time())
+    if err: raise err
     if ok: db.x("UPDATE users SET last_login=? WHERE id=?", (db.now(), u["id"]))
     return u if ok else None
+
+# ---------------------------------------------------------------- 社内SSO（SSOのhttp認証仕様.xlsx）
+# 社員コードとパスワードを SSO サーバーへ POST し、200 なら成功、404 なら失敗
+SSO_DEFAULT = {"enabled": True, "url": "https://sso.valorholdings.co.jp/", "app_path": "",
+               "encoding": "utf-8", "timeout": 10, "auto_register": False}
+
+def sso_config():
+    r = db.q("SELECT value FROM app_config WHERE key='sso'", one=True)
+    cfg = dict(SSO_DEFAULT)
+    if r: cfg.update(json.loads(r["value"]))
+    return cfg
+
+def set_sso_config(cfg):
+    db.x("INSERT OR REPLACE INTO app_config VALUES('sso', ?)", (json.dumps(cfg, ensure_ascii=False),))
+
+def sso_body(login_id, pw, cfg):
+    enc = cfg["encoding"]
+    if cfg["app_path"]:
+        return (f"module=SSO&action=AgentAuth&login_id={quote_plus(login_id, encoding=enc)}"
+                f"&login_password={quote_plus(pw, encoding=enc)}&app_path={quote_plus(cfg['app_path'], encoding=enc)}")
+    return f"module=SSO&action=REST&id={quote_plus(login_id, encoding=enc)}&pwd={quote_plus(pw, encoding=enc)}"
+
+def sso_status(login_id, pw, cfg=None):
+    """SSOサーバーの応答ステータスを返す（接続できなければ AuthError）"""
+    cfg = cfg or sso_config()
+    req = urllib.request.Request(cfg["url"], data=sso_body(login_id, pw, cfg).encode("ascii"), method="POST",
+                                 headers={"Content-Type": f"application/x-www-form-urlencoded; charset={cfg['encoding']}"})
+    try:
+        with urllib.request.urlopen(req, timeout=float(cfg["timeout"])) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception as e:
+        raise AuthError(f"SSOサーバーに接続できません（{type(e).__name__}）。しばらくしてからやり直すか、管理者に連絡してください")
+
+def sso_check(login_id, pw, cfg=None):
+    cfg = cfg or sso_config()
+    if not login_id or not pw: return False
+    # REST（app_path空白）はこのSSOではパスワードを検証しないため、ログインには使わせない
+    if not cfg["app_path"]:
+        raise AuthError("SSOの設定が未完了です（app_path が未設定）。管理者に連絡してください")
+    st = sso_status(login_id, pw, cfg)
+    if st == 200: return True
+    if st == 404: return False
+    raise AuthError(f"SSOサーバーの応答が想定外です（ステータス {st}）。管理者に連絡してください")
 
 # ---------------------------------------------------------------- セッション（署名付きクッキー）
 def _sign(data):
